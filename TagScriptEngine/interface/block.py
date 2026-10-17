@@ -18,7 +18,7 @@ class Block:
 
     Attributes
     ----------
-    ACCEPTED_NAMES: Tuple[str, ...]
+    ACCEPTED_NAMES: tuple[str, ...]
         The accepted names for this block. This ideally should be set as a class attribute.
     """
 

@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional
+from typing import Optional
 
 __all__ = ("implicit_bool", "helper_parse_if", "helper_split", "helper_parse_list_if")
 
@@ -88,7 +88,7 @@ def helper_parse_if(string: str) -> Optional[bool]:
 
 def helper_split(
     split_string: str, easy: bool = True, *, maxsplit: int = None
-) -> Optional[List[str]]:
+) -> Optional[list[str]]:
     """
     A helper method to universalize the splitting logic used in multiple
     blocks and adapters. Please use this wherever a verb needs content to

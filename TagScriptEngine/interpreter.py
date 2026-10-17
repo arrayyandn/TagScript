@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from itertools import islice
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from .exceptions import ProcessError, StopError, TagScriptError, WorkloadExceededError
 from .interface import Adapter, Block
@@ -20,7 +20,7 @@ __all__ = (
 
 log = logging.getLogger(__name__)
 
-AdapterDict = Dict[str, Adapter]
+AdapterDict = dict[str, Adapter]
 
 
 class Node:
@@ -29,7 +29,7 @@ class Node:
 
     Attributes
     ----------
-    coordinates: Tuple[int, int]
+    coordinates: tuple[int, int]
         The start and end position of the bracketed text block.
     verb: Optional[Verb]
         The determined Verb for this node.
@@ -39,7 +39,7 @@ class Node:
 
     __slots__ = ("output", "verb", "coordinates")
 
-    def __init__(self, coordinates: Tuple[int, int], verb: Optional[Verb] = None):
+    def __init__(self, coordinates: tuple[int, int], verb: Optional[Verb] = None):
         self.output: Optional[str] = None
         self.verb = verb
         self.coordinates = coordinates
@@ -51,13 +51,13 @@ class Node:
         return f"<Node verb={self.verb!r} coordinates={self.coordinates!r} output={self.output!r}>"
 
 
-def build_node_tree(message: str) -> List[Node]:
+def build_node_tree(message: str) -> list[Node]:
     """
     Function that finds all possible nodes in a string.
 
     Returns
     -------
-    List[Node]
+    list[Node]
         A list of all possible text bracket blocks.
     """
     nodes = []
@@ -86,21 +86,21 @@ class Response:
     ----------
     body: str
         The cleaned message with all verbs interpreted.
-    actions: Dict[str, Any]
+    actions: dict[str, Any]
         A dictionary that blocks can access and modify to define post-processing actions.
-    variables: Dict[str, Adapter]
+    variables: dict[str, Adapter]
         A dictionary of variables that blocks such as the `LooseVariableGetterBlock` can access.
-    extra_kwargs: Dict[str, Any]
+    extra_kwargs: dict[str, Any]
         A dictionary of extra keyword arguments that blocks can use to define their own behavior.
     """
 
     __slots__ = ("body", "actions", "variables", "extra_kwargs")
 
-    def __init__(self, *, variables: AdapterDict = None, extra_kwargs: Dict[str, Any] = None):
+    def __init__(self, *, variables: AdapterDict = None, extra_kwargs: dict[str, Any] = None):
         self.body: str = None
-        self.actions: Dict[str, Any] = {}
+        self.actions: dict[str, Any] = {}
         self.variables: AdapterDict = variables if variables is not None else {}
-        self.extra_kwargs: Dict[str, Any] = extra_kwargs if extra_kwargs is not None else {}
+        self.extra_kwargs: dict[str, Any] = extra_kwargs if extra_kwargs is not None else {}
 
     def __repr__(self):
         return (
@@ -141,14 +141,14 @@ class Interpreter:
 
     Attributes
     ----------
-    blocks: List[Block]
+    blocks: list[Block]
         A list of blocks to be used for TagScript processing.
     """
 
     __slots__ = ("blocks",)
 
-    def __init__(self, blocks: List[Block]):
-        self.blocks: List[Block] = blocks
+    def __init__(self, blocks: list[Block]):
+        self.blocks: list[Block] = blocks
 
     def __repr__(self):
         return f"<{type(self).__name__} blocks={self.blocks!r}>"
@@ -168,7 +168,7 @@ class Interpreter:
         node.verb = Verb(final[start : end + 1], limit=verb_limit, dot_parameter=dot_parameter)
         return Context(node.verb, response, self, original_message)
 
-    def _get_acceptors(self, ctx: Context) -> List[Block]:
+    def _get_acceptors(self, ctx: Context) -> list[Block]:
         acceptors = [b for b in self.blocks if b.will_accept(ctx)]
         log.debug("%r acceptors: %r", ctx, acceptors)
         return acceptors
@@ -195,7 +195,7 @@ class Interpreter:
         return total_work
 
     @staticmethod
-    def _text_deform(start: int, end: int, final: str, output: str) -> Tuple[str, int]:
+    def _text_deform(start: int, end: int, final: str, output: str) -> tuple[str, int]:
         message_slice_len = (end + 1) - start
         replacement_len = len(output)
         differential = (
@@ -205,7 +205,7 @@ class Interpreter:
         return final, differential
 
     @staticmethod
-    def _translate_nodes(node_ordered_list: List[Node], index: int, start: int, differential: int):
+    def _translate_nodes(node_ordered_list: list[Node], index: int, start: int, differential: int):
         for future_n in islice(node_ordered_list, index + 1, None):
             new_start = None
             new_end = None
@@ -223,7 +223,7 @@ class Interpreter:
     def _solve(
         self,
         message: str,
-        node_ordered_list: List[Node],
+        node_ordered_list: list[Node],
         response: Response,
         *,
         charlimit: int,
@@ -281,13 +281,13 @@ class Interpreter:
         ----------
         message: str
             A TagScript string to be processed.
-        seed_variables: Dict[str, Adapter]
+        seed_variables: dict[str, Adapter]
             A dictionary containing strings to adapters to provide context variables for processing.
         charlimit: int
             The maximum characters to process.
         dot_parameter: bool
             Whether the parameter should be followed after a "." or use the default of parantheses.
-        kwargs: Dict[str, Any]
+        kwargs: dict[str, Any]
             Additional keyword arguments that may be used by blocks during processing.
 
         Returns
@@ -330,7 +330,7 @@ class AsyncInterpreter(Interpreter):
     See `Interpreter` for full documentation.
     """
 
-    async def _get_acceptors(self, ctx: Context) -> List[Block]:
+    async def _get_acceptors(self, ctx: Context) -> list[Block]:
         return [b for b in self.blocks if await maybe_await(b.will_accept, ctx)]
 
     async def _process_blocks(self, ctx: Context, node: Node) -> Optional[str]:
@@ -345,7 +345,7 @@ class AsyncInterpreter(Interpreter):
     async def _solve(
         self,
         message: str,
-        node_ordered_list: List[Node],
+        node_ordered_list: list[Node],
         response: Response,
         *,
         charlimit: int,
