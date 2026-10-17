@@ -1,5 +1,6 @@
+import math
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from discord.ext.commands import CooldownMapping
 
@@ -41,10 +42,55 @@ class CooldownBlock(verb_required_block(True, payload=True, parameter=True)):
         {cooldown(3|3):{channel(id)}|Slow down! This tag can only be used 3 times per 3 seconds per channel. Try again in **{retry_after}** seconds."}
         # the tag was used more than 3 times in 3 seconds in a channel
         # Slow down! This tag can only be used 3 times per 3 seconds per channel. Try again in **0.74** seconds.
+
+    **Deferred mode**
+
+    By default the buckets live in memory on the class and the block raises
+    :class:`~TagScriptEngine.exceptions.CooldownExceeded` as soon as one is exceeded.
+    That breaks when the interpreter runs in several processes or restarts, so passing
+    ``defer=True`` moves the check to whoever consumes the
+    :class:`~TagScriptEngine.interpreter.Response`.
+
+    A deferred block never raises, never touches the in-memory buckets and always outputs an
+    empty string. Instead it appends one dict per evaluated block, in script order, to
+    ``response.actions["cooldowns"]``::
+
+        {
+            "key": str,              # the interpreted key
+            "rate": int,             # uses allowed, at least 1
+            "per": float,            # window in seconds, greater than 0
+            "message": str | None,   # custom message, or None for the default one
+        }
+
+    ``message`` already has ``{key}`` filled in, while the literal text ``{retry_after}`` is
+    left for the consumer to replace. When it is ``None`` the consumer should send the default
+    message, ``The bucket for {key} has reached its cooldown. Retry in {retry_after} seconds.``,
+    filling in both itself.
+    Every value is a plain JSON type, so the actions can be sent over HTTP as they are.
+
+    In deferred mode ``rate`` must be a whole number and ``per`` may be a decimal (the legacy
+    mode parses ``rate`` as a decimal and ``per`` as a whole number). Invalid parameters make the
+    block do nothing, like in the legacy mode.
+
+    The consumer should check the entries in order against its shared storage, scoping each
+    bucket by its own cooldown key (the ``cooldown_key`` keyword passed to the interpreter) plus
+    the entry's ``key``. The first exceeded entry wins: send only its message and ignore the body
+    and every other action. This differs slightly from the legacy mode, which keeps any text
+    output before the block and drops everything after it. Since the script runs to the end
+    before any check, a script that errors after a cooldown block also no longer uses up a use.
+
+    Parameters
+    ----------
+    defer: bool
+        Whether to leave the cooldown check to the consumer through
+        ``response.actions["cooldowns"]`` instead of raising. Defaults to ``False``.
     """
 
     ACCEPTED_NAMES = ("cooldown",)
-    COOLDOWNS: Dict[Any, CooldownMapping] = {}
+    COOLDOWNS: dict[Any, CooldownMapping] = {}
+
+    def __init__(self, *, defer: bool = False):
+        self.defer = defer
 
     @classmethod
     def create_cooldown(cls, key: Any, rate: int, per: int) -> CooldownMapping:
@@ -56,9 +102,15 @@ class CooldownBlock(verb_required_block(True, payload=True, parameter=True)):
         verb = ctx.verb
         try:
             rate, per = helper_split(verb.parameter, maxsplit=1)
-            per = int(per)
-            rate = float(rate)
+            if self.defer:
+                rate = int(rate)
+                per = float(per)
+            else:
+                per = int(per)
+                rate = float(rate)
         except (ValueError, TypeError):
+            return
+        if self.defer and (rate < 1 or not (math.isfinite(per) and per > 0)):
             return
 
         if split := helper_split(verb.payload, False, maxsplit=1):
@@ -66,6 +118,9 @@ class CooldownBlock(verb_required_block(True, payload=True, parameter=True)):
         else:
             key = verb.payload
             message = None
+
+        if self.defer:
+            return self._defer(ctx, key, rate, per, message)
 
         cooldown_key = ctx.response.extra_kwargs.get("cooldown_key")
         if cooldown_key is None:
@@ -90,4 +145,16 @@ class CooldownBlock(verb_required_block(True, payload=True, parameter=True)):
             else:
                 message = f"The bucket for {key} has reached its cooldown. Retry in {retry_after} seconds."
             raise CooldownExceeded(message, bucket, key, retry_after)
+        return ""
+
+    @staticmethod
+    def _defer(ctx: Context, key: str, rate: int, per: float, message: Optional[str]) -> str:
+        ctx.response.actions.setdefault("cooldowns", []).append(
+            {
+                "key": key,
+                "rate": rate,
+                "per": per,
+                "message": message.replace("{key}", key) if message else None,
+            }
+        )
         return ""
