@@ -4,8 +4,6 @@ from typing import Optional
 from ..interface import verb_required_block
 from ..interpreter import Context
 
-random = Random()
-
 class RandomBlock(verb_required_block(True, payload=True)):
     """
     Pick a random item from a list of strings, split by either ``~``
@@ -42,8 +40,4 @@ class RandomBlock(verb_required_block(True, payload=True)):
             spl = ctx.verb.payload.split("~")
         else:
             spl = ctx.verb.payload.split(",")
-        random.seed(ctx.verb.parameter)
-
-        choice = random.choice(spl)
-        random.seed()
-        return choice
+        return Random(ctx.verb.parameter).choice(spl)

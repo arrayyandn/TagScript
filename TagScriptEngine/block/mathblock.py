@@ -2,6 +2,7 @@ from __future__ import division
 
 import math
 import operator
+import threading
 from typing import Optional
 
 from pyparsing import (
@@ -20,6 +21,24 @@ from pyparsing import (
 
 from ..interface import Block
 from ..interpreter import Context
+
+# str() refuses ints over 4,300 digits, and the block then prints as written.
+# Refuse those before computing them; the +1 keeps float error from refusing one str() would print.
+MAX_DIGITS = 4300
+
+
+def guarded_pow(a, b):
+    if type(a) is int and type(b) is int and b > 0 and abs(a) > 1:
+        if b * math.log10(abs(a)) > MAX_DIGITS + 1:
+            raise ValueError("pow result too large")
+    return a**b
+
+
+def guarded_mul(a, b):
+    if type(a) is int and type(b) is int and a and b:
+        if math.log10(abs(a)) + math.log10(abs(b)) > MAX_DIGITS + 1:
+            raise ValueError("product too large")
+    return a * b
 
 
 class NumericStringParser(object):
@@ -97,11 +116,11 @@ class NumericStringParser(object):
             "-": operator.sub,
             "+=": operator.iadd,
             "-=": operator.isub,
-            "*": operator.mul,
-            "*=": operator.imul,
+            "*": guarded_mul,
+            "*=": guarded_mul,
             "/": operator.truediv,
             "/=": operator.itruediv,
-            "^": operator.pow,
+            "^": guarded_pow,
             "%": operator.mod,
         }
         self.fn = {
@@ -144,7 +163,14 @@ class NumericStringParser(object):
         return self.evaluateStack(self.exprStack[:])
 
 
-NSP = NumericStringParser()
+_local = threading.local()
+
+
+def _parser() -> NumericStringParser:
+    # The parser keeps its eval stack on itself, so each thread needs its own.
+    if not hasattr(_local, "nsp"):
+        _local.nsp = NumericStringParser()
+    return _local.nsp
 
 
 class MathBlock(Block):
@@ -152,6 +178,6 @@ class MathBlock(Block):
 
     def process(self, ctx: Context):
         try:
-            return str(NSP.eval(ctx.verb.payload.strip(" ")))
+            return str(_parser().eval(ctx.verb.payload.strip(" ")))
         except:
             return None
