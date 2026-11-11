@@ -1,0 +1,190 @@
+[
+  {
+    "name": "lazy if",
+    "why": "Only the branch taken runs, so only its action is planned.",
+    "src": "{if(1==2):{c:ban x}|{c:kick y}}",
+    "legacy": {"body": "", "commands": ["ban x", "kick y"]},
+    "engine": {"body": "", "plan": [{"kind": "command", "text": "kick y"}]}
+  },
+  {
+    "name": "lazy random",
+    "why": "random picks first and runs one option.",
+    "src": "{random:{c:a}~{c:b}}",
+    "legacy": {"body": "", "commands": ["a", "b"]},
+    "engine": {"body": "", "plan_len": 1}
+  },
+  {
+    "name": "variable text keeps its bar",
+    "why": "A value is never parsed again, so | inside {a} isn't a branch.",
+    "src": "{=(a):yes|no}{if(1==1):{a}}",
+    "legacy": {"body": "yes"},
+    "engine": {"body": "yes|no"}
+  },
+  {
+    "name": "member != in a condition",
+    "why": "Operators count only in the script's own text.",
+    "src": "{if({match}==secret):yes|no}",
+    "match": "x!=y",
+    "legacy": {"body": "yes"},
+    "engine": {"body": "no"}
+  },
+  {
+    "name": "member >= in a condition",
+    "why": "Operators count only in the script's own text, so the member's text is one side, and it isn't a number.",
+    "src": "{if({match}>=5):big|small}",
+    "match": "1>=0",
+    "legacy": {"body": "big"},
+    "engine": {"error": "script_error"}
+  },
+  {
+    "name": "member bar in a condition",
+    "why": "Member text can't add a branch.",
+    "src": "{if({match}):yes|no}",
+    "match": "true|x",
+    "legacy": {"body": "{if(true|x):yes|no}"},
+    "engine": {"body": "no"}
+  },
+  {
+    "name": "member closes the condition",
+    "why": "Member text can't close a parameter or write a branch.",
+    "src": "{if({match}):yes|no}",
+    "match": "true):PWNED|",
+    "legacy": {"body": "PWNED|):yes|no"},
+    "engine": {"body": "no"}
+  },
+  {
+    "name": "member condition in any",
+    "why": "A condition written by a member is plain text, so it isn't true.",
+    "src": "{any({match}|1==2):y|n}",
+    "match": "1==1",
+    "legacy": {"body": "y"},
+    "engine": {"body": "n"}
+  },
+  {
+    "name": "member comma in replace",
+    "why": "Member text can't split replace's (old,new).",
+    "src": "{replace({match},x):banana}",
+    "match": "a,n",
+    "legacy": {"body": "bn,xnn,xnn,x"},
+    "engine": {"body": "banana"}
+  },
+  {
+    "name": "member options in random",
+    "why": "Member text can't add random options.",
+    "src": "{random:{match}}",
+    "match": "a~b~c~d",
+    "legacy": {"body_in": ["a", "b", "c", "d"]},
+    "engine": {"body": "a~b~c~d"}
+  },
+  {
+    "name": "member operators in math",
+    "why": "Each block in math is one number. Member text can't add operators.",
+    "src": "{math:{match}+1}",
+    "match": "2*1000",
+    "legacy": {"body": "2001.0"},
+    "engine": {"error": "script_error"}
+  },
+  {
+    "name": "name built from a block",
+    "why": "Block names must be written out, so member text can't name a block.",
+    "src": "{{match}}",
+    "match": "c:ban x",
+    "legacy": {"body": "", "commands": ["ban x"]},
+    "engine": {"problem": "Block names must be written out"}
+  },
+  {
+    "name": "member text in a command",
+    "why": "Commands take fixed text and id facts only.",
+    "src": "{c:remind {match}}",
+    "match": "x}{c:ban y",
+    "legacy": {"body": "", "commands": ["remind x}{c:ban y"]},
+    "engine": {"problem": "{match} can't go in a command"}
+  },
+  {
+    "name": "member text in math in a command",
+    "why": "The judge's case: math can't carry member text into a command.",
+    "src": "{c:remind {math:{match}}}",
+    "match": "-5",
+    "legacy": {"body": "", "commands": ["remind -5.0"]},
+    "engine": {"problem": "{math:{match}} can't go in a command"}
+  },
+  {
+    "name": "member braces stay text",
+    "why": "Output is never parsed again, in either engine.",
+    "src": "{=(x):{match}}{x}",
+    "match": "{c:ban x}",
+    "legacy": {"body": "{c:ban x}"},
+    "engine": {"body": "{c:ban x}"}
+  },
+  {
+    "name": "escapes",
+    "why": "Escapes print the character itself.",
+    "src": "a \\{ b \\} c \\| d \\: e",
+    "legacy": {"body": "a \\{ b \\} c \\| d \\: e"},
+    "engine": {"body": "a { b } c | d : e"}
+  },
+  {
+    "name": "escaped bar in a branch",
+    "why": "An escaped bar is text, not a branch.",
+    "src": "{if(1==1):a\\|b|c}",
+    "legacy": {"body": "a\\|b"},
+    "engine": {"body": "a|b"}
+  },
+  {
+    "name": "stop drops actions",
+    "why": "{stop} cancels every planned action and replies with its own text.",
+    "src": "{c:ping}{stop(1==1):no}",
+    "legacy": {"body": "no", "commands": ["ping"]},
+    "engine": {"body": "no", "plan": [], "stopped": true}
+  },
+  {
+    "name": "break keeps the reply so far",
+    "why": "{break} ends the script and keeps what came before it.",
+    "src": "a{break(1==1)}b",
+    "legacy": {"body": ""},
+    "engine": {"body": "a"}
+  },
+  {
+    "name": "break without a condition",
+    "why": "Legacy {break} needs a condition and raises without one.",
+    "src": "a{break}b",
+    "legacy": {"raises": "ProcessError"},
+    "engine": {"body": "a"}
+  },
+  {
+    "name": "whole numbers",
+    "why": "Whole numbers print as 2.",
+    "src": "{math:1+1}",
+    "legacy": {"body": "2.0"},
+    "engine": {"body": "2"}
+  },
+  {
+    "name": "unknown block",
+    "why": "Unknown blocks are save errors instead of text.",
+    "src": "{hello}",
+    "legacy": {"body": "{hello}"},
+    "engine": {"problem": "Unknown block {hello}"}
+  },
+  {
+    "name": "three branches",
+    "why": "if takes at most two branches.",
+    "src": "{if(1==1):a|b|c}",
+    "legacy": {"body": "a|b|c"},
+    "engine": {"problem": "at most two branches"}
+  },
+  {
+    "name": "same behaviour",
+    "why": "The common text blocks print the same.",
+    "src": "{=(x):hi}{x} {replace(a,b):banana} {urlencode:a b} {any(1==2|2==2):y|n} {all(1==1|2==3):y|n} {if(3>2):y|n}",
+    "legacy": {"body": "hi bbnbnb a%20b y n y"},
+    "engine": {"body": "hi bbnbnb a%20b y n y"}
+  },
+  {
+    "name": "member bar in a variable",
+    "why": "Same in both: the comparison fails.",
+    "src": "{=(n):{match}}{if({n}==1):one|other}",
+    "match": "1|PWNED",
+    "legacy": {"body": "other"},
+    "engine": {"body": "other"}
+  }
+]

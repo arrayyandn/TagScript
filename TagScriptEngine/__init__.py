@@ -8,7 +8,16 @@ from .interpreter import *
 from .utils import *
 from .verb import Verb
 
-__version__ = "2.6.3"
+__version__ = "2.7.0"
+
+
+def __getattr__(name):
+    # Loaded on first use, so a problem in engine/ can't break the legacy Interpreter.
+    if name == "Engine":
+        from .engine import Engine
+
+        return Engine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # github co-pilot automatically wrote the documentation for this and I decided to keep it
