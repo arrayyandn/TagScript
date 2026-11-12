@@ -36,8 +36,8 @@ class Budget(Exception):
 
 
 class StopRun(Exception):
-    def __init__(self, text: str):
-        self.text = text
+    def __init__(self, text: str, node: Block | None = None):
+        self.text, self.node = text, node
 
 
 class BreakRun(Exception):
@@ -112,9 +112,28 @@ class Spec:
         """Check the written form. Each rule is "no", "yes" or "opt"."""
         for rule, seq in ((param, node.param), (payload, node.payload)):
             if (rule == "no" and seq is not None) or (rule == "yes" and not seq):
-                err(f"{{{node.name}}} is written like {self.example}.")
+                err.shape(f"{{{node.name}}} is written like {self.example}.")
                 return False
         return True
+
+
+class Written(Spec):
+    """A block that loose mode prints as written. The blocks inside it still run, in place."""
+
+    def value(self, node, r):
+        src, out, at = r.tree.src, [], node.start
+        for kid in node.kids:
+            out.append(src[at : kid.start])
+            r.emit((kid,), out)
+            at = kid.end
+        out.append(src[at : node.end])
+        return "".join(out)
+
+    def paths(self, node):
+        return [node.kids], []
+
+
+WRITTEN = Written()
 
 
 OPS = ("!=", "==", ">=", "<=", ">", "<")
@@ -252,10 +271,11 @@ class Assign(Spec):
         if not valid_var(name):
             err(f"{name[:32]!r} can't be a variable name. Use letters, numbers, _ and -.")
             return None
-        if name.lower() in engine.specs:
+        spec = engine.lookup(name)
+        if spec is not None and not (engine.shadow_facts and isinstance(spec, Fact)):
             err(f"{{{name}}} is a block, so it can't be a variable name.")
             return None
-        return name.lower()
+        return engine.var_key(name)
 
     def value(self, node, r):
         r.vars[node.data] = r.text(node.payload)
@@ -270,10 +290,13 @@ class VarRead(Spec):
     category = "variable"
 
     def compile(self, node, err, engine):
-        return node.name.strip().lower()
+        return engine.var_key(node.name)
 
     def value(self, node, r):
-        return r.vars.get(node.data, "")
+        v = r.vars.get(node.data)
+        if v is None:
+            return WRITTEN.value(node, r) if r.loose else ""
+        return v
 
 
 VAR = VarRead()
@@ -288,7 +311,7 @@ class Math(Spec):
         if not self.shape(node, err, payload="yes"):
             return None
         lim = engine.limits
-        return compile_math(node.payload, err, chars=lim.math_chars, depth=lim.math_depth)
+        return compile_math(node.payload, err.shape if engine.loose else err, chars=lim.math_chars, depth=lim.math_depth)
 
     def value(self, node, r):
         try:
@@ -308,7 +331,7 @@ class Replace(Spec):
             return None
         parts = split(node.param, COMMA, 1)
         if len(parts) != 2:
-            err(f"{{replace}} is written like {self.example}. Type \\, for a comma.")
+            err.shape(f"{{replace}} is written like {self.example}. Type \\, for a comma.")
             return None
         return parts
 
@@ -357,7 +380,8 @@ class Search(Spec):
         self.names, self.doc, self.example, self.fn = (name,), doc, example, fn
 
     def compile(self, node, err, engine):
-        self.shape(node, err, param="yes", payload="yes")
+        if not (engine.loose and node.param is not None and node.payload is not None):  # legacy answers for () too
+            self.shape(node, err, param="yes", payload="yes")
 
     def value(self, node, r):
         return self.fn(r.text(node.param), r.text(node.payload))
@@ -393,7 +417,7 @@ class Substr(Spec):
         try:
             return _bounds(p)
         except ValueError as e:
-            err(str(e))
+            (err.shape if engine.loose else err)(str(e))
 
     def value(self, node, r):
         try:
@@ -411,14 +435,17 @@ def _cond(spec: Spec, node: Block, err) -> tuple | None:
 
 class Stop(Spec):
     names = ("stop",)
-    doc = "Ends the script and drops every planned action, {redirect} too, so only its text is posted, in the channel."
+    doc = (
+        "Ends the script and drops every planned action, {redirect} too, so only its text is posted, in the channel. "
+        "With legacy_stop it keeps the text and actions before it, like legacy."
+    )
     example = "{stop({hasrole(<@&111>)}):You're already verified.}"
     category = "control"
 
     def compile(self, node, err, engine):
-        if not self.shape(node, err, param="opt", payload="opt"):
+        if not self.shape(node, err, param="yes" if engine.legacy_stop else "opt", payload="opt"):
             return None
-        inner = find((node.param, node.payload), Break)
+        inner = None if engine.legacy_break else find((node.param, node.payload), Break)
         if inner is not None:
             err("{break} can't go inside {stop}, because the stop must always win.", at=inner)
             return None
@@ -426,7 +453,7 @@ class Stop(Spec):
 
     def value(self, node, r):
         if node.data is None or test(node.data, r):
-            raise StopRun(r.text(node.payload))
+            raise StopRun(r.text(node.payload), node)
         return ""
 
 
@@ -437,6 +464,11 @@ class Break(Spec):
     category = "control"
 
     def compile(self, node, err, engine):
+        if engine.legacy_break:
+            if node.param is None:  # legacy crashes on it
+                err.shape(f"{{{node.name}}} is written like {{break(a==b):text}}.")
+                return None
+            return compile_cond(node.param)  # () is false, like legacy
         if node.payload is not None:
             err("{break} keeps the reply so far and takes no text. To reply with only some text, use {stop(...):text}.")
             return None
@@ -445,14 +477,17 @@ class Break(Spec):
 
     def value(self, node, r):
         if node.data is None or test(node.data, r):
-            raise BreakRun()
+            if not r.tree.engine.legacy_break:
+                raise BreakRun()
+            r.reply = r.text(node.payload)  # legacy: the reply is this text, and the run goes on
         return ""
 
 
 class Fact(Spec):
     """Reads plain data that the caller passes to ``Engine.run``.
 
-    ``params`` is None for ``{name}``, a tuple of the allowed ``(param)`` words, or a
+    ``params`` is None for ``{name}``, a tuple of the allowed ``(param)`` words (a None in it
+    lets ``{name}`` go without one), or a
     :class:`~TagScriptEngine.engine.plan.Kind` for a written-out target such as a role.
     ``ids`` names the params whose value is an id, which may go into a command.
     By default ``{user(id)}`` reads ``facts["user"]["id"]`` and ``{trigger}`` reads
@@ -485,7 +520,8 @@ class Fact(Spec):
         if self.params is None:
             self.shape(node, err)
             return None
-        if not self.shape(node, err, param="yes"):
+        bare = isinstance(self.params, tuple) and None in self.params
+        if not self.shape(node, err, param="opt" if bare else "yes") or node.param is None:
             return None
         p = literal(node.param)
         if p is None:
@@ -494,16 +530,27 @@ class Fact(Spec):
         if isinstance(self.params, tuple):
             p = p.strip().lower()
             if p not in self.params:
-                err(f"{{{node.name}}} takes one of: {', '.join(self.params)}.")
+                err(f"{{{node.name}}} takes one of: {', '.join(x for x in self.params if x)}.")
             return p
         return self.params.compile(node.param, err, node.name)
 
     def is_id(self, node: Block) -> bool:
         return isinstance(self.params, tuple) and node.data in self.ids
 
+    def shadow(self, value: str, param) -> str:
+        """What ``{name(param)}`` gives when a variable shadows this fact. Override to read the param."""
+        return value
+
     def value(self, node, r):
+        engine = r.tree.engine
+        if engine.shadow_facts:
+            v = r.vars.get(engine.var_key(node.name))
+            if v is not None:
+                return self.shadow(v, node.data)
         v = self.read(r.facts, node.data)
-        return "" if v is None else str(v)
+        if v is None:
+            return WRITTEN.value(node, r) if r.loose else ""
+        return str(v)
 
 
 BUILTINS: tuple[Spec, ...] = (

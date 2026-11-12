@@ -151,6 +151,58 @@ Welcome, {user(mention)}! You're verified.
   Hitting any other cap above ends the run with no plan. The parser and math are iterative, so deep nesting
   can't overflow the stack.
 
+### Legacy options (opt-in, since 2.8.0)
+
+For old scripts, `Engine(...)` takes these, all off by default. With none of them on, the
+Engine works as above.
+
+- `builtins=BUILTINS`: the text and control blocks to start from. Leave one out to register
+  your own under its name, as in `builtins=[b for b in BUILTINS if "if" not in b.names]`.
+- `loose=True`: unknown names, unset variables, old names, stray braces, blocks of the wrong
+  shape and `{` with no `}` print as written, as legacy prints them, and the blocks inside them
+  still run in place. So do `{math}` and `{substr}` written with a sum or bounds the Engine can't
+  read (legacy still reads `{substr(1-2-3):...}` and an empty `{substr(1):}`), and `{in}`, `{contains}` and `{index}` answer for an empty part like legacy. Each is a warning,
+  so `tree.ok` stays true, until there are more than `Limits.problems` of them: past that cap the
+  tree gets an error. Names match like legacy: facts and variables by their exact case, other
+  blocks in any case, and a name with spaces around it is nothing. Budgets, the depth cap and
+  every other save error still fail, and so does a run where a member's text makes `{math}` or
+  `{substr}` unreadable (`script_error`). Printed text is never parsed again, so `check` still
+  lists every action that can run.
+- `legacy_stop=True`: `{stop(...):text}` keeps the reply before it and the actions planned so
+  far. It needs a condition, so `{stop}` and `{stop:x}` are the wrong shape.
+- `legacy_break=True`: `{break(...):text}` makes `text` the whole reply and the run goes on, so
+  later actions are planned. A later `{break}` wins, and a `{break}` reply wins over a `{stop}`.
+- `shadow_facts=True`: `{=(args):...}` makes `{args}` read the variable. Only facts can be
+  shadowed, never actions or other blocks. A shadowed fact can't go in a command: it is a save
+  error, and the run fails too if a variable set some other way shadows it. Override
+  `Fact.shadow(value, param)` to read `{args(2)}` from the variable, and put `None` in a fact's
+  `params` to let `{args}` go without one.
+
+If you replace `{=}` through `builtins`, the new block must subclass `Assign`, and a new
+`{break}` must subclass `Break`, or the save checks above can't see them. A custom `bind`
+passed to `parse()` now also gets `kids` and `bad`. A custom `Kind` whose `parse` returns `None`
+without raising is now a save error ("got no ..."), even with no options on, because `check`
+could not list that action. The built-in kinds never do this.
+
+Still not legacy, with every option on:
+
+- Branches stay lazy. A `{stop}`, `{break}`, `{=}` or action in a branch not taken never runs,
+  so `{if(1==1):{=(r):a}|{=(r):b}}{r}` gives `a` (legacy: `b`), and a block in it prints as
+  written in the text before a stop.
+- An `if` with no operator is false: `{if({args}):yes|no}` gives `no`, where legacy prints it as
+  written.
+- A block name made by other blocks prints as written: `{=(n):user}{{n}}` gives `{user}`
+  (legacy: `sam`).
+- Member text and variable values are never read as script, so `==`, `!=` or `|` in them is
+  never an operator or a separator. `{if({args}==):none|some}` with args `x==x` gives `some`
+  (legacy: `none`), and a `{stop}` on such text can differ the same way.
+- Legacy stores and reads variable names by their exact text, spaces included. The Engine trims
+  them: `{=( x ):1}{x}` gives `1` (legacy: `{x}`), and `{=(x ):1}{x }` prints `{x }` (legacy: `1`).
+- Escapes, `{x(2)}` on a variable, errors from other strict blocks (three `if` branches, a bad
+  variable name, a command), text after `)`, and the `short` and `halt` names stay as above.
+  `{=(x)}` stores nothing, not `None`, and `{break}` with no condition is the wrong shape
+  instead of a crash.
+
 ## Dependencies
 
 `Python 3.12+`

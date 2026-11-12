@@ -883,7 +883,7 @@ def test_engine_imports_only_the_stdlib_it_needs():
 def test_version():
     import TagScriptEngine
 
-    assert TagScriptEngine.__version__ == "2.7.1"
+    assert TagScriptEngine.__version__ == "2.8.0"
     assert TagScriptEngine.Engine is Engine
 
 

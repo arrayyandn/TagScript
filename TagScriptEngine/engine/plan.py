@@ -213,6 +213,9 @@ class _Command(Kind):
             if isinstance(p, str):
                 out.append(p)
                 continue
+            eng = r.tree.engine
+            if eng.shadow_facts and eng.var_key(p.name) in r.vars:
+                raise Fail(f"{{{p.name.strip()}}} is set as a variable, so the command won't run.")
             v = r.text((p,)).strip()
             if not id_shaped(v):
                 raise Fail(f"{{{p.name}}} didn't give an id, so the command won't run.")
@@ -265,7 +268,11 @@ class ActionBlock(Spec):
         on_param = self.where == "param"
         if not self.shape(node, err, param="yes" if on_param else "no", payload="no" if on_param else "yes"):
             return None
-        return self.arg.compile(node.param if on_param else node.payload, err, node.name)
+        seen = len(err.problems)
+        data = self.arg.compile(node.param if on_param else node.payload, err, node.name)
+        if data is None and len(err.problems) == seen:  # the checker can't list an empty item, so it can't run
+            err(f"{{{node.name}}} got no {self.arg.name}.")
+        return data
 
     def item(self, node: Block, src: str) -> dict:
         """The item as written, for the checker. A command keeps its id blocks as written."""

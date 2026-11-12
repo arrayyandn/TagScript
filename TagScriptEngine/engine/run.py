@@ -87,6 +87,10 @@ class Run:
         self.vars: dict[str, str] = {}
         self.plan: list[dict] = []
         self.trace: list[list] | None = [] if trace else None
+        engine = tree.engine
+        self.loose = engine.loose
+        self.reply: str | None = None  # set by {break} with legacy_break
+        self.done: dict | None = {} if engine.legacy_stop else None  # id(block) -> what it printed
 
     def spend(self, n: int):
         self.steps += n
@@ -120,11 +124,14 @@ class Run:
                 self.spend(spec.cost)
                 step = self._trace(part)
                 if spec.branches:
+                    k = len(out)
                     arm, label = spec.choose(part, self)
                     if step:
                         step[1] = label
                     if arm:
                         self.emit(arm, out)
+                    if self.done is not None:
+                        self.done[id(part)] = "".join(out[k:])
                 else:
                     v = spec.value(part, self)
                     if len(v) > self.limits.value:
@@ -133,6 +140,8 @@ class Run:
                         step[1] = v if spec.category != "action" else f"planned {self.plan[-1]}"
                     self.charge(len(v))
                     out.append(v)
+                    if self.done is not None:
+                        self.done[id(part)] = v
 
     def text(self, seq: tuple | None) -> str:
         if not seq:
@@ -174,9 +183,15 @@ class Run:
             except BreakRun:
                 pass
             except StopRun as s:
-                out, stopped = [s.text], True
-                self.plan = []
-            body = "".join(out).strip()[: self.limits.reply]  # cut like tags, the plan stays
+                stopped = True
+                if self.done is None:
+                    out, self.plan = [s.text], []
+                else:
+                    before = self._before(s.node)
+                    self.charge(len(before))
+                    out = [before, s.text]  # legacy keeps the plan too
+            body = "".join(out) if self.reply is None else self.reply
+            body = body.strip()[: self.limits.reply]  # cut like tags, the plan stays
         except Budget as e:
             error, detail = "script_budget", str(e)
         except Fail as e:
@@ -190,6 +205,23 @@ class Run:
         if error:
             return Result("", (), False, self.steps, cpu_us, trace, error, detail)
         return Result(body, tuple(self.plan), stopped, self.steps, cpu_us, trace)
+
+    def _before(self, stop: Block) -> str:
+        """Legacy's text before a {stop}: the blocks before it as they printed, and the blocks
+        around it as written up to it. A block that never ran, in a branch not taken, is as written."""
+        src, out, at = self.tree.src, [], 0
+        kids = [p for p in self.tree.root if p.__class__ is Block]
+        i = 0
+        while i < len(kids) and kids[i].start < stop.start:
+            kid = kids[i]
+            out.append(src[at : kid.start])
+            if kid.end <= stop.start:
+                out.append(self.done.get(id(kid), src[kid.start : kid.end]))
+                at, i = kid.end, i + 1
+            else:
+                at, kids, i = kid.start, kid.kids, 0
+        out.append(src[at : stop.start])
+        return "".join(out)
 
     def _step(self, node: Block, result: str) -> TraceStep:
         src = self.tree.src

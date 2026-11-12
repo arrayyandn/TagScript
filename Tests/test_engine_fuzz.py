@@ -9,6 +9,8 @@ from urllib.parse import quote
 import pytest
 
 from .engine_vocab import facts, make_engine
+from TagScriptEngine.engine import ActionBlock
+from TagScriptEngine.engine.plan import id_shaped
 
 E = make_engine()
 SEED = 20261111
@@ -203,3 +205,62 @@ def test_check_lists_every_planned_action():
                     planned += 1
                     assert (item["kind"] in kinds) if item["kind"] == "command" else (item in items), (src, item)
     assert ran == 1500 * 9 and planned > 1000
+
+
+LOOSE = make_engine(loose=True, legacy_stop=True, legacy_break=True, shadow_facts=True)
+# Wrappers that loose mode prints as written. The blocks inside still run and must be listed.
+JUNK = [
+    "{foo:%s}", "{ if(1==1):%s}", "{if(1==1) :%s}", "{cooldown(5):%s}", "{%s}", "}%s", "{%s", "%s{",
+    "{stop:%s}", "{math}%s", "{ c:hidden}%s", "{c :hidden}%s", "{User}%s", "{missing}%s", "{if.x:%s}",
+    "{break(1==1):%s}", "{replace(a):%s}", "{=(match):{v}}%s",
+    "{=(user):{match}}%s", "{=(User):<@9>}%s", "{let(channel):<#5>}%s{c:info {channel(id)} }",
+]
+# Member text with braces, which loose mode must print and never run, and an id a shadow could slip in.
+LOOSE_FACTS = [*FACT_SETS, {"match": "{c:ban x}", "content": "}{addrole:<@&9>}{"}, {"match": "<@777>"}]
+
+
+def listed_commands(tree, report, f: dict) -> set:
+    """The listed commands with the real fact values put in, so an id from a variable can't pass."""
+    out = set()
+    for a in report.actions:
+        if a.kind != "command":
+            continue
+        node = next(n for n in tree.blocks if n.start == a.start and isinstance(n.spec, ActionBlock))
+        vals = [p if isinstance(p, str) else str(p.spec.read(f, p.data) or "").strip() for p in node.data]
+        if all(isinstance(p, str) or id_shaped(v) for p, v in zip(node.data, vals)):
+            out.add("".join(vals).strip())
+    return out
+
+
+def test_loose_check_lists_every_planned_action():
+    """Loose mode prints broken blocks as written. An action must never hide in that text and run
+    without the checker listing it, on any branch."""
+    rng = random.Random(SEED)
+    ran = planned = 0
+    for _ in range(1500):
+        body = "".join(
+            (rng.choice(JUNK) % script(rng)) if rng.random() < 0.6 else script(rng) for _ in range(rng.randrange(1, 4))
+        )
+        src = "{=(v):{match}}" + body
+        if len(src) > LOOSE.limits.chars:
+            continue
+        tree = LOOSE.parse(src)
+        errors = [p.message for p in tree.problems if p.severity == "error"]
+        assert all("set as a variable" in m for m in errors), (src, errors)
+        if errors:
+            continue
+        report = LOOSE.check(tree)
+        items = [a.item for a in report.actions]
+        assert "hidden" not in repr(items), src
+        for f in LOOSE_FACTS:
+            commands = listed_commands(tree, report, facts(**f))
+            for seed in range(3):
+                res = LOOSE.run(tree, facts(**f), rng=random.Random(seed))
+                ran += 1
+                if report.ok:
+                    assert not (res.error == "script_budget" and "planned more than" in res.detail), src
+                for item in res.plan:
+                    planned += 1
+                    assert (item["text"] in commands) if item["kind"] == "command" else (item in items), (src, item)
+                    assert "hidden" not in repr(item), src
+    assert ran > 1200 * 12 and planned > 1000
