@@ -350,6 +350,59 @@ class UrlEncode(Spec):
         return (quote_plus if node.data else quote)(r.text(node.payload))
 
 
+class Search(Spec):
+    """{in}, {contains} and {index}: legacy's PythonBlock, with the same answers."""
+
+    def __init__(self, name: str, doc: str, example: str, fn: Callable[[str, str], str]):
+        self.names, self.doc, self.example, self.fn = (name,), doc, example, fn
+
+    def compile(self, node, err, engine):
+        self.shape(node, err, param="yes", payload="yes")
+
+    def value(self, node, r):
+        return self.fn(r.text(node.param), r.text(node.payload))
+
+
+def _index(x: str, text: str) -> str:
+    words = text.split()
+    return str(words.index(x)) if x in words else "-1"
+
+
+def _bounds(p: str) -> tuple[int, int | None]:
+    """(start) or (start-end), each cut to a whole number like legacy. - is the separator, so no negatives."""
+    try:
+        nums = [int(to_number(s)) for s in p.split("-")]
+    except MathError:
+        nums = []
+    if not 1 <= len(nums) <= 2:
+        raise ValueError(f"{{substr}} takes (start) or (start-end), with numbers of 0 or more, not {p[:40]!r}.")
+    return nums[0], nums[1] if len(nums) == 2 else None
+
+
+class Substr(Spec):
+    names = ("substr",)
+    doc = "The part of the text from start up to end, counting from 0. {substr(2):…} goes to the end."
+    example = "{substr(2-5):text}"
+
+    def compile(self, node, err, engine):
+        if not self.shape(node, err, param="yes", payload="yes"):
+            return None
+        p = literal(node.param)
+        if p is None:
+            return None  # read when the script runs
+        try:
+            return _bounds(p)
+        except ValueError as e:
+            err(str(e))
+
+    def value(self, node, r):
+        try:
+            start, end = node.data or _bounds(r.text(node.param))
+        except ValueError as e:
+            raise Fail(str(e)) from None
+        return r.text(node.payload)[start:end]
+
+
 def _cond(spec: Spec, node: Block, err) -> tuple | None:
     if node.param is not None and not node.param:
         err(f"{{{node.name}}} is written like {spec.example}.")
@@ -464,21 +517,39 @@ BUILTINS: tuple[Spec, ...] = (
     Case("upper", str.upper),
     Case("lower", str.lower),
     UrlEncode(),
+    Search("in", "true if x is anywhere in the text, else false.", "{in(x):text}", lambda x, t: str(x in t).lower()),
+    Search(
+        "contains",
+        "true if x is one of the text's words, split at spaces, else false.",
+        "{contains(x):text}",
+        lambda x, t: str(x in t.split()).lower(),
+    ),
+    Search("index", "Which word of the text x is, counting from 0, or -1.", "{index(x):text}", _index),
+    Substr(),
     Stop(),
     Break(),
 )
 
 _WHO = "Who can use a trigger is a trigger setting."
+_FIFTY = "Use {random:text~} instead."
 DEFAULT_HINTS = {
     "cooldown": "Cooldowns are a trigger setting.",
     "require": _WHO,
+    "whitelist": _WHO,
     "blacklist": _WHO,
     "override": "Commands always run with the member's own permissions.",
     "embed": "Send a saved message with {message:<id>} instead.",
     "silent": "Commands from a script are already quiet.",
-    "python": "Use {if} instead.",
-    "5050": "Use {random:text~} instead.",
-    "50": "Use {random:text~} instead.",
+    "halt": "Use {stop} instead.",
+    "error": "Use {stop} instead.",
+    "short": "Use {break} instead.",
+    "shortcircuit": "Use {break} instead.",
+    "5050": _FIFTY,
+    "50": _FIFTY,
+    "?": _FIFTY,
+    "substring": "Use {substr} instead.",
+    "strf": "There's no date or time formatting.",
+    "unix": "There's no date or time formatting.",
     "range": "Write the options out in {random:a~b~c} instead.",
     "rangef": "Write the options out in {random:a~b~c} instead.",
     "var": "Use {=(name):value} instead.",

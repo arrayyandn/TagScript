@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from TagScriptEngine import Engine
+from TagScriptEngine import Engine, Interpreter, block
 from TagScriptEngine.engine import ActionBlock, Fact, Limits, Spec
 from TagScriptEngine.engine.parse import Block, Sep
 
@@ -112,6 +112,26 @@ def test_unknown_escape_keeps_backslash():
         ("{addrole:<@&5>}{stop:{break}}after", "{break} can't go inside {stop}"),
         ("{stop({break}):x}", "{break} can't go inside {stop}"),
         ("{stop:{if(1==1):{break}|x}}", "{break} can't go inside {stop}"),
+        ("{whitelist(<@&1>)}", "{whitelist} isn't in the Engine. Who can use a trigger is a trigger setting."),
+        ("{halt}", "{halt} isn't in the Engine. Use {stop} instead."),
+        ("{error:x}", "{error} isn't in the Engine. Use {stop} instead."),
+        ("{short}", "{short} isn't in the Engine. Use {break} instead."),
+        ("{shortcircuit(1==1)}", "{shortcircuit} isn't in the Engine. Use {break} instead."),
+        ("{?:hi}", "{?} isn't in the Engine. Use {random:text~} instead."),
+        ("{substring(1-3):abc}", "{substring} isn't in the Engine. Use {substr} instead."),
+        ("{strf:%Y}", "{strf} isn't in the Engine. There's no date or time formatting."),
+        ("{unix}", "{unix} isn't in the Engine. There's no date or time formatting."),
+        ("{python(a):b}", "Unknown block {python}."),
+        ("{in():abc}", "{in} is written like {in(x):text}."),
+        ("{contains(a)}", "{contains} is written like {contains(x):text}."),
+        ("{index:a b}", "{index} is written like {index(x):text}."),
+        ("{substr(2)}", "{substr} is written like {substr(2-5):text}."),
+        ("{substr(-2):abc}", "{substr} takes (start) or (start-end), with numbers of 0 or more, not '-2'."),
+        ("{substr(1-2-3):abc}", "not '1-2-3'."),
+        ("{substr(x):abc}", "not 'x'."),
+        ("{substr(inf):abc}", "not 'inf'."),
+        ("{substr(1-):abc}", "not '1-'."),
+        ("{=(index):5}", "{index} is a block"),
     ],
 )
 def test_save_errors(src, msg):
@@ -321,6 +341,75 @@ def test_text_blocks():
 
 def test_reply_is_trimmed():
     assert body("  \n hi \n ") == "hi"
+
+
+LEGACY_TEXT = Interpreter([block.PythonBlock(), block.SubstringBlock()])
+
+
+@pytest.mark.parametrize(
+    "src, want",
+    [
+        ("{in(apple pie):banana pie apple pie}", "true"),
+        ("{in(a):cot}", "false"),
+        ("{in( pie):apie}", "false"),
+        ("{IN(a):cat}", "true"),
+        ("{contains(feel):How does it feel}", "true"),
+        ("{contains(fe):How does it feel}", "false"),
+        ("{contains(muted?):to be muted?}", "true"),
+        ("{index(eat):I love to eat food.}", "3"),
+        ("{index(food):I love to eat food.}", "-1"),
+        ("{index(a):a a a}", "0"),
+        ("{index( love):I love}", "-1"),
+        ("{substr(2):abcdef}", "cdef"),
+        ("{substr(1-3):abcdef}", "bc"),
+        ("{substr(1.9-3.2):abcdef}", "bc"),
+        ("{substr( 2 - 4 ):abcdef}", "cd"),
+        ("{substr(5-2):abcdef}", ""),
+        ("{substr(99):abc}", ""),
+        ("{substr(1e1):abcdefghijklmn}", "klmn"),
+        ("{substr(0-1_0):abcdefghijklm}", "abcdefghij"),
+        ("{substr(1e300):abc}", ""),
+    ],
+)
+def test_search_and_substr_match_legacy(src, want):
+    assert body(src) == want
+    assert LEGACY_TEXT.process(src).body == want
+
+
+@pytest.mark.parametrize(
+    "src, match, want",
+    [
+        ("{in({match}):secret}", "s):s", "false"),
+        ("{in({match}):abc}", "", "true"),
+        ("{index({match}):a b c}", "c):c", "-1"),
+        ("{contains({match}):a b c}", "a b", "false"),
+        ("{substr({match}):abcdef}", "1-3", "bc"),
+        ("{substr(0-5):{match}}", "{c:ban x}", "{c:ba"),
+        ("{in(a):{match}}", "}{c:ban x}", "true"),
+    ],
+)
+def test_search_and_substr_keep_member_text_as_text(src, match, want):
+    res = run(src, f={"match": match})
+    assert (res.body, res.plan, res.error) == (want, (), None)
+
+
+@pytest.mark.parametrize("match", ["-2", "", "x", "1-2-3", "1):x}{c:ban x}{substr(1", "nan"])
+def test_substr_needs_numbers_from_members_too(match):
+    res = run("{addrole:<@&5>}{substr({match}):abcdef}", f={"match": match})
+    assert (res.error, res.plan) == ("script_error", ())
+    assert res.detail == f"{{substr}} takes (start) or (start-end), with numbers of 0 or more, not {match!r}."
+
+
+def test_search_and_substr_are_charged():
+    a = "{=(a):" + "x" * 3000 + "}"
+    assert run(a + "{in(y):{a}}").steps >= 3000 // 64
+    for blk in ("{in(y):{a}}", "{contains(y):{a}}", "{index(y):{a}}", "{substr(1):{a}}"):
+        assert run(a + blk * 10).error == "script_budget", blk
+
+
+def test_checker_sees_nothing_in_search_and_substr():
+    report = E.check(E.parse("{in(a):b}{contains(a):b}{index({match}):b}{substr(1):{user(id)}}"))
+    assert report.ok and report.actions == () and report.user_ids == ()
 
 
 # Math
@@ -794,7 +883,7 @@ def test_engine_imports_only_the_stdlib_it_needs():
 def test_version():
     import TagScriptEngine
 
-    assert TagScriptEngine.__version__ == "2.7.0"
+    assert TagScriptEngine.__version__ == "2.7.1"
     assert TagScriptEngine.Engine is Engine
 
 

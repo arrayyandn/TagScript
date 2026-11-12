@@ -46,7 +46,7 @@ For example TagScript comes out of the box with a random block that would let us
 a template that produces a new result each time its ran, or assign math and variables for later
 use.
 
-## Engine (2.7.0, opt-in)
+## Engine (opt-in, since 2.7.0)
 
 `tse.Engine` is a second, stricter way to run TagScript, built for scripts that members of a
 server write and other members trigger. The legacy `Interpreter` is unchanged and still the
@@ -91,7 +91,8 @@ result.to_json()  # {"v": 1, "body": ..., "plan": [...], "stopped": false, "cpu_
 - `Engine(limits=Limits(...))` overrides any cap.
 
 Built in: `{=(name):value}` (also `let`, `assign`), `{name}`, `{if}`, `{any}`, `{all}`,
-`{random}`, `{math}`, `{replace}`, `{upper}`, `{lower}`, `{urlencode}`, `{stop}`, `{break}`.
+`{random}`, `{math}`, `{replace}`, `{upper}`, `{lower}`, `{urlencode}`, `{in}`, `{contains}`,
+`{index}`, `{substr}`, `{stop}`, `{break}`.
 
 Example, with Element's vocabulary:
 
@@ -113,9 +114,16 @@ Welcome, {user(mention)}! You're verified.
   `x!=y` or `true):PWNED|` answers `no`.
 - **Names are written out.** `{{match}}` is a save error, not a block named by the member.
 - **Unknown blocks are save errors** with a "did you mean", instead of printing as text. Legacy
-  blocks the Engine leaves out (`cooldown`, `require`, `embed`, `python`, `range` and others)
-  and old short names (`m`, `calc`, `+`, `or`, `and`, `#`) say what to use instead. Variables
-  hold one text value, so `{a(1)}` on a variable is a save error, not a list item.
+  blocks the Engine leaves out (`cooldown`, `require`, `embed`, `range`, `strf` and others)
+  and old names (`m`, `calc`, `+`, `or`, `and`, `#`, `halt`, `short`, `?`, `substring` and
+  others) say what to use instead. Variables hold one text value, so `{a(1)}` on a variable is
+  a save error, not a list item.
+- **`{in}`, `{contains}`, `{index}` and `{substr}`** give legacy's answers, and member text in
+  them stays text. An empty `()` or empty text written in the script is a save error. `{substr}` takes
+  `(start)` or `(start-end)` and cuts decimals to whole numbers, as legacy does. `-` is the
+  separator, so there are no negative numbers. A start or end that isn't a number, or more than
+  two numbers, is a save error when written in the script and a `"script_error"` when it comes
+  from a block, as in `{math}`. Legacy printed the block as written, or used the first two.
 - **Branches are lazy.** `if`, `any`, `all` and `random` run only the branch they pick, so only
   its actions are planned. `any` and `all` stop at the first answer. `if`, `any` and `all` take
   at most two branches.

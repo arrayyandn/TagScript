@@ -62,6 +62,18 @@ def ref_ge(m):
     return ("", [ROLE2]) if x >= 5 else ("", [DM])
 
 
+def ref_substr(m):
+    nums = [num(p) for p in m.split("-")]
+    if not 1 <= len(nums) <= 2 or None in nums:
+        return ("error", None)
+    return ("abcdef"[int(nums[0]) : int(nums[1]) if len(nums) == 2 else None], [])
+
+
+def ref_words(m):
+    at = ["a", "b", "z"].index(m) if m in ("a", "b", "z") else -1
+    return (f"{str('z' in m.split()).lower()}|{at}", [])
+
+
 def ref_random(m, seed):
     pick = random.Random(seed).randrange(2)
     return ((m.strip() if pick == 0 else "fixed"), [])
@@ -83,6 +95,9 @@ TEMPLATES = [
     ("{urlencode:{match}}", lambda m: (quote(m).strip(), [])),
     ("{math:{match}+1}", ref_math),
     ("{random:{match}~fixed}", None),
+    ("{if({in({match}):secret word}==true):{addrole:<@&111>}in|out}", lambda m: ("in", [ROLE1]) if m in "secret word" else ("out", [])),
+    ("{contains(z):{match}}|{index({match}):a b z}", ref_words),
+    ("{substr({match}):abcdef}", ref_substr),
 ]
 
 
@@ -95,7 +110,7 @@ def test_member_text_never_changes_structure(src, ref):
     report = E.check(tree)
     assert report.ok
     for i in range(2000):
-        m = member(rng) if i % 10 else rng.choice(["secret", "true", "x", "y", "z", "stop", "5", "7"])
+        m = member(rng) if i % 10 else rng.choice(["secret", "true", "x", "y", "z", "stop", "5", "7", "2-4", "a"])
         seed = rng.randrange(1 << 30)
         res = E.run(tree, facts(match=m, content=m), rng=random.Random(seed))
         want_body, want_plan = ref(m) if ref else ref_random(m, seed)

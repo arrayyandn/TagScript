@@ -28,6 +28,8 @@ LEGACY = Interpreter(
         block.BreakBlock(),
         block.URLEncodeBlock(),
         block.CommandBlock(),
+        block.PythonBlock(),
+        block.SubstringBlock(),
     ]
 )
 

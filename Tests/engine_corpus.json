@@ -186,5 +186,87 @@
     "match": "1|PWNED",
     "legacy": {"body": "other"},
     "engine": {"body": "other"}
+  },
+  {
+    "name": "in finds text anywhere",
+    "why": "Same answers as legacy.",
+    "src": "{in(apple pie):banana pie apple pie} {in(a):cot}",
+    "legacy": {"body": "true false"},
+    "engine": {"body": "true false"}
+  },
+  {
+    "name": "contains matches a whole word",
+    "why": "Same answers as legacy: words are split at spaces, so punctuation stays on the word.",
+    "src": "{contains(feel):How does it feel} {contains(fe):How does it feel} {contains(muted?):to be muted?}",
+    "legacy": {"body": "true false true"},
+    "engine": {"body": "true false true"}
+  },
+  {
+    "name": "index counts words from 0",
+    "why": "Same answers as legacy, -1 when the word isn't there.",
+    "src": "{index(eat):I love to eat food.} {index(food):I love to eat food.}",
+    "legacy": {"body": "3 -1"},
+    "engine": {"body": "3 -1"}
+  },
+  {
+    "name": "substr cuts from start to end",
+    "why": "Same answers as legacy, decimals cut to whole numbers.",
+    "src": "{substr(1-3):abcdef} {substr(2):abcdef} {substr(1.9-3.2):abcdef} {substr(5-2):abcdef}",
+    "legacy": {"body": "bc cdef bc"},
+    "engine": {"body": "bc cdef bc"}
+  },
+  {
+    "name": "substr with a negative number",
+    "why": "- separates start from end, so -2 isn't a number. Legacy prints the block as written.",
+    "src": "{substr(-2):abcdef}",
+    "legacy": {"body": "{substr(-2):abcdef}"},
+    "engine": {"problem": "{substr} takes (start) or (start-end)"}
+  },
+  {
+    "name": "substr with three numbers",
+    "why": "Legacy quietly uses the first two. The Engine says it can't read it.",
+    "src": "{substr(1-2-3):abcdef}",
+    "legacy": {"body": "b"},
+    "engine": {"problem": "not '1-2-3'"}
+  },
+  {
+    "name": "member text in the in parameter",
+    "why": "Legacy reads the member's ) as the end of the parameter. The Engine looks for the whole text.",
+    "src": "{if({in({match}):secret}==true):yes|no}",
+    "match": "s):s",
+    "legacy": {"body": "yes"},
+    "engine": {"body": "no"}
+  },
+  {
+    "name": "member text in the index parameter",
+    "why": "Legacy reads the member's ) as the end of the parameter. The Engine looks for the whole text.",
+    "src": "{index({match}):a b c}",
+    "match": "c):c",
+    "legacy": {"body": "2"},
+    "engine": {"body": "-1"}
+  },
+  {
+    "name": "member text as substr numbers",
+    "why": "Legacy re-reads the member's text as part of the block. The Engine stops the run, as for math on a non-number.",
+    "src": "{substr({match}):abcdef}",
+    "match": "1):x}{c:ban x}{substr(1",
+    "legacy": {"body": "}{c:ban x}{substr(1):abcdef"},
+    "engine": {"error": "script_error"}
+  },
+  {
+    "name": "member numbers in substr",
+    "why": "Same in both when the member writes numbers.",
+    "src": "{substr({match}):abcdef}",
+    "match": "1-3",
+    "legacy": {"body": "bc"},
+    "engine": {"body": "bc"}
+  },
+  {
+    "name": "member text in the substr and in text",
+    "why": "Same in both: the text is only text.",
+    "src": "{substr(0-5):{match}} {in(a):{match}}",
+    "match": "{c:ban x}",
+    "legacy": {"body": "{c:ba true"},
+    "engine": {"body": "{c:ba true"}
   }
 ]
